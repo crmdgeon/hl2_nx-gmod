@@ -9,7 +9,7 @@ An experimental native port of Garry's Mod to the Nintendo Switch, combining cod
 
 You need:
 * the Source Engine `.apk` [HERE](https://arumoon.github.io/source-engine-download/)
-* the GDroid ARM64 `.apk` [HERE]([https://arumoon.github.io/source-engine-download/](https://github.com/tinsarfal/GDroid/releases/download/0.1.29/GDroid-0.1.29.apk)
+* the GDroid ARM64 `.apk` [HERE](https://github.com/tinsarfal/GDroid/releases/download/0.1.29/GDroid-0.1.29.apk)
 * Your own Garry's Mod files (/garrysmod, /platform, /sourceengine)
 
 To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
