@@ -50,8 +50,6 @@ Some Garry's Mod addons may be compatible with this port. To install them, you c
 * Copy the addon folders into the garrysmod/addons/ directory on your Nintendo Switch.
 * Launch the game and check whether the addons work correctly.
 
-Note: Compatibility is not guaranteed. Addons that rely on unsupported Lua features, external dependencies, platform-specific binaries, or features unavailable in this port may not work properly. Some addons may require additional configuration or dependencies.
-
 Multiplayer is **untested** for now.
 Connecting directly by IP (`connect <ip>` in the console) may work, but I haven't
 verified it. I plan to look into it. Feedback is welcome.
