@@ -24,6 +24,9 @@ To install, create `/switch/hl2_nx/` and `/switch/gmod_nx_overlay` on your SD ca
                             "libSDL2.so" and "libSDL2.so"
 
    files/                <- the fonts from the Source Engine APK's assets/ (dejavusans.ttf,
+                           dejavusans-bold.ttf, DroidSansFallback.ttf,
+                           LiberationMono-Regular.ttf, Itim-Regular.otf)
+
    platform/             <- from the game data
    garrysmod/            <- from the game data
    sourceengine/         <- from the game data
