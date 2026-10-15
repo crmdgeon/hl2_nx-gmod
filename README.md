@@ -13,7 +13,7 @@ You need:
 * the GDroid ARM64 `.apk` [HERE](https://github.com/tinsarfal/GDroid/releases/download/0.1.29/GDroid-0.1.29.apk)
 * Your own Garry's Mod files (/garrysmod, /platform, /sourceengine)
 
-To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
+To install, create `/switch/hl2_nx/` and `/switch/gmod_nx_overlay` on your SD card and lay it out like this:
 
 ```
 /switch/
