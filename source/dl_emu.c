@@ -135,6 +135,11 @@ void *dlsym_fake(void *handle, const char *symbol) {
     DynLibFunction *f = so_find_import(dynlib_functions, dynlib_numfunctions, symbol);
     if (f)
       addr = (void *)f->func;
+    if (!addr) {
+      DynLibFunction *extra = so_find_extra_import(symbol);
+      if (extra)
+        addr = (void *)extra->func;
+    }
     if (!addr)
       addr = (void *)so_lookup_export_all(symbol);
   } else if (handle == HANDLE_EGL) {

@@ -1,0 +1,28 @@
+# build outputs (attach the .nro to a GitHub Release instead)
+build/
+*.elf
+*.nro
+*.nacp
+*.lst
+*.o
+*.d
+
+# game data and third-party binaries: never commit these
+/lib_gmod/
+/gmod_nx_overlay/
+/garrysmod/
+/sourceengine/
+/platform/
+/hl2/
+/episodic/
+/ep2/
+*.vpk
+*.bsp
+*.so
+*.apk
+
+# logs, crash dumps and local settings
+debug.log
+crash_dump*.txt
+*.log
+gmod_env.txt

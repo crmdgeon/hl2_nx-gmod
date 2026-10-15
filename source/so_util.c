@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "so_util.h"
+#include "android_reloc.h"
 #include "util.h"
 #include "error.h"
 
@@ -29,11 +30,58 @@
 #define DT_RELRSZ  35
 #define DT_RELRENT 37
 #endif
+#ifndef R_AARCH64_TLS_TPREL64
+#define R_AARCH64_TLS_TPREL64 1030
+#endif
+#ifndef R_AARCH64_TLSDESC
+#define R_AARCH64_TLSDESC 1031
+#endif
 #define DT_ANDROID_RELR    0x6fffe000
 #define DT_ANDROID_RELRSZ  0x6fffe001
 #define DT_ANDROID_RELRENT 0x6fffe003
 
 static so_module *so_list = NULL;
+
+// next free byte (relative to TPIDR_EL0) in the per-thread static TLS area
+static uint64_t so_tls_next = SO_TLS_BASE_OFF;
+
+static DynLibFunction *extra_funcs = NULL;
+static int num_extra_funcs = 0;
+static so_missing_import_cb missing_cb = NULL;
+
+void so_set_extra_imports(DynLibFunction *funcs, int num_funcs) {
+  extra_funcs = funcs;
+  num_extra_funcs = num_funcs;
+}
+
+DynLibFunction *so_find_extra_import(const char *name) {
+  for (int i = 0; i < num_extra_funcs; i++)
+    if (strcmp(extra_funcs[i].symbol, name) == 0)
+      return &extra_funcs[i];
+  return NULL;
+}
+
+void so_set_missing_import_handler(so_missing_import_cb cb) {
+  missing_cb = cb;
+}
+
+// TLSDESC resolver for static TLS: the descriptor's second word already holds
+// the variable's offset from the thread pointer, so just return it. Per the
+// AArch64 TLSDESC ABI only x0 (and flags) may be clobbered.
+#if defined(__aarch64__)
+extern void so_tlsdesc_static_resolver(void);
+__asm__(
+  ".text\n"
+  ".global so_tlsdesc_static_resolver\n"
+  ".type so_tlsdesc_static_resolver, %function\n"
+  "so_tlsdesc_static_resolver:\n"
+  "  ldr x0, [x0, #8]\n"
+  "  ret\n"
+);
+#else
+// host-side unit tests only: the address is stored but never called
+static void so_tlsdesc_static_resolver(void) {}
+#endif
 
 so_module *so_first(void) {
   return so_list;
@@ -124,6 +172,7 @@ void so_finalize(so_module *mod) {
   }
 
   free(is_x_page);
+  mod->finalized = 1;
 }
 
 int so_load(so_module *mod, const char *filename, void *base, size_t max_size) {
@@ -186,6 +235,27 @@ int so_load(so_module *mod, const char *filename, void *base, size_t max_size) {
   if (mod->load_size > max_size) {
     res = -3;
     goto err_free_so;
+  }
+
+  // thread-local storage segment (pristine phdrs: link-time addresses)
+  for (int i = 0; i < mod->phnum; i++) {
+    if (mod->phdr[i].p_type == PT_TLS) {
+      uint64_t align = mod->phdr[i].p_align ? mod->phdr[i].p_align : 1;
+      if (align < 16) align = 16;
+      const uint64_t off = ALIGN_MEM(so_tls_next, align);
+      if (off + mod->phdr[i].p_memsz > SO_TLS_LIMIT_OFF) {
+        debugPrintf("so_load: %s needs too much static TLS (%u bytes)\n", filename, (u32)mod->phdr[i].p_memsz);
+        res = -5;
+        goto err_free_so;
+      }
+      mod->tls_vaddr = mod->phdr[i].p_vaddr;
+      mod->tls_filesz = mod->phdr[i].p_filesz;
+      mod->tls_memsz = mod->phdr[i].p_memsz;
+      mod->tls_align = align;
+      mod->tls_offset = off;
+      so_tls_next = off + mod->phdr[i].p_memsz;
+      break;
+    }
   }
 
   mod->load_base = base;
@@ -292,12 +362,48 @@ static void so_process_relr(so_module *mod, const Elf64_Xword *relr, size_t relr
   }
 }
 
+// Returns the relocation entries of section `idx`: a view into the load image
+// for plain SHT_RELA tables, or a freshly decoded copy for Android's packed
+// SHT_ANDROID_RELA tables ("APS2"). *owned != 0 means the caller must free().
+static const Elf64_Rela *so_section_relocs(so_module *mod, int idx, size_t *count, int *owned) {
+  const Elf64_Shdr *sh = &mod->sec_hdr[idx];
+  const void *data = (const void *)((uintptr_t)mod->load_base + sh->sh_addr);
+
+  *owned = 0;
+  if (sh->sh_type == SHT_ANDROID_RELA_TYPE) {
+    Elf64_Rela *rels = NULL;
+    const int rc = android_reloc_unpack((const uint8_t *)data, sh->sh_size, &rels, count, NULL);
+    if (rc != ANDROID_RELOC_OK)
+      fatal_error("Error: %s: cannot read packed relocations:\n%s", mod->name, android_reloc_strerror(rc));
+    *owned = 1;
+    return rels;
+  }
+
+  *count = sh->sh_size / sizeof(Elf64_Rela);
+  return (const Elf64_Rela *)data;
+}
+
+// offset of a TLS variable from TPIDR_EL0 for relocation `rel` of module `mod`
+static uint64_t so_tls_value(so_module *mod, const Elf64_Sym *sym, const Elf64_Rela *rel) {
+  if (mod->tls_memsz == 0)
+    fatal_error("Error: %s uses TLS relocations\nbut has no PT_TLS segment", mod->name);
+  uint64_t value = mod->tls_offset + (uint64_t)rel->r_addend;
+  if (ELF64_R_SYM(rel->r_info) != 0) {
+    if (sym->st_shndx == SHN_UNDEF)
+      fatal_error("Error: %s imports a TLS symbol:\n%s", mod->name, mod->dynstrtab + sym->st_name);
+    value += sym->st_value; // offset inside the TLS segment
+  }
+  return value;
+}
+
 int so_relocate(so_module *mod) {
   for (int i = 0; i < mod->elf_hdr->e_shnum; i++) {
     char *sh_name = mod->shstrtab + mod->sec_hdr[i].sh_name;
     if (strcmp(sh_name, ".rela.dyn") == 0 || strcmp(sh_name, ".rela.plt") == 0) {
-      Elf64_Rela *rels = (Elf64_Rela *)((uintptr_t)mod->load_base + mod->sec_hdr[i].sh_addr);
-      for (int j = 0; j < mod->sec_hdr[i].sh_size / sizeof(Elf64_Rela); j++) {
+      size_t num_rels = 0;
+      int owned = 0;
+      const Elf64_Rela *rels = so_section_relocs(mod, i, &num_rels, &owned);
+      for (size_t j = 0; j < num_rels; j++) {
         uintptr_t *ptr = (uintptr_t *)((uintptr_t)mod->load_base + rels[j].r_offset);
         Elf64_Sym *sym = &mod->syms[ELF64_R_SYM(rels[j].r_info)];
 
@@ -326,11 +432,24 @@ int so_relocate(so_module *mod) {
             break;
           }
 
+          case R_AARCH64_TLS_TPREL64:
+            *ptr = (uintptr_t)so_tls_value(mod, sym, &rels[j]);
+            break;
+
+          case R_AARCH64_TLSDESC:
+            // descriptor = { resolver, argument }; static TLS argument is the
+            // variable's offset from the thread pointer
+            ptr[0] = (uintptr_t)&so_tlsdesc_static_resolver;
+            ptr[1] = (uintptr_t)so_tls_value(mod, sym, &rels[j]);
+            break;
+
           default:
-            fatal_error("Error: unknown relocation type:\n%x", type);
+            fatal_error("Error: unknown relocation type:\n%u in %s", (unsigned)type, mod->name);
             break;
         }
       }
+      if (owned)
+        free((void *)rels);
     }
   }
 
@@ -375,6 +494,13 @@ static uintptr_t so_resolve_symbol(so_module *mod, DynLibFunction *funcs, int nu
   // The import table takes priority over module exports so the host can
   // override anything (e.g. SDL_*, libc); everything else falls through to
   // the other Source modules' exports (CreateInterface, tier0 API, ...).
+  // the extra table (GMod profile only) overrides the stock one
+  {
+    DynLibFunction *extra = so_find_extra_import(name);
+    if (extra)
+      return extra->func;
+  }
+
   for (int k = 0; k < num_funcs; k++) {
     if (strcmp(name, funcs[k].symbol) == 0)
       return funcs[k].func;
@@ -396,8 +522,10 @@ int so_resolve(so_module *mod, DynLibFunction *funcs, int num_funcs, int taint_m
   for (int i = 0; i < mod->elf_hdr->e_shnum; i++) {
     char *sh_name = mod->shstrtab + mod->sec_hdr[i].sh_name;
     if (strcmp(sh_name, ".rela.dyn") == 0 || strcmp(sh_name, ".rela.plt") == 0) {
-      Elf64_Rela *rels = (Elf64_Rela *)((uintptr_t)mod->load_base + mod->sec_hdr[i].sh_addr);
-      for (int j = 0; j < mod->sec_hdr[i].sh_size / sizeof(Elf64_Rela); j++) {
+      size_t num_rels = 0;
+      int owned = 0;
+      const Elf64_Rela *rels = so_section_relocs(mod, i, &num_rels, &owned);
+      for (size_t j = 0; j < num_rels; j++) {
         uintptr_t *ptr = (uintptr_t *)((uintptr_t)mod->load_base + rels[j].r_offset);
         Elf64_Sym *sym = &mod->syms[ELF64_R_SYM(rels[j].r_info)];
 
@@ -410,14 +538,17 @@ int so_resolve(so_module *mod, DynLibFunction *funcs, int num_funcs, int taint_m
             if (sym->st_shndx == SHN_UNDEF) {
               char *name = mod->dynstrtab + sym->st_name;
               uintptr_t addr = so_resolve_symbol(mod, funcs, num_funcs, name);
-              if (addr) {
-                *ptr = addr + rels[j].r_addend;
-              } else {
+              if (!addr) {
                 missing++;
                 debugPrintf("%s: unresolved import: %s\n", mod->name, name);
+                if (missing_cb)
+                  addr = missing_cb(name);
+              }
+              if (addr) {
+                *ptr = addr + rels[j].r_addend;
+              } else if (taint_missing_imports) {
                 // taint so an unresolved call crashes at an obvious address
-                if (taint_missing_imports)
-                  *ptr = rels[j].r_offset;
+                *ptr = rels[j].r_offset;
               }
             }
 
@@ -428,6 +559,8 @@ int so_resolve(so_module *mod, DynLibFunction *funcs, int num_funcs, int taint_m
             break;
         }
       }
+      if (owned)
+        free((void *)rels);
     }
   }
 
@@ -442,6 +575,18 @@ void so_execute_init_array(so_module *mod) {
   for (int i = 0; i < mod->num_init; i++) {
     if (mod->init_array[i])
       mod->init_array[i]();
+  }
+}
+
+void so_tls_init_thread(void *tp) {
+  if (!tp)
+    return;
+  for (so_module *m = so_list; m; m = m->next) {
+    if (!m->finalized || m->tls_filesz == 0)
+      continue;
+    memcpy((uint8_t *)tp + m->tls_offset,
+           (const void *)((uintptr_t)m->load_virtbase + m->tls_vaddr),
+           m->tls_filesz);
   }
 }
 

@@ -163,6 +163,27 @@ int __system_property_get_fake(const char *name, char *value) {
   return 0;
 }
 
+
+// Random bytes for SYS_getrandom and /dev/urandom. LuaJIT (liblua_shared) seeds
+// its PRNG with syscall(SYS_getrandom) and then /dev/urandom; if both fail
+// luaL_newstate() returns NULL and no Lua state (menu/server/client) can exist.
+static long fill_random(void *buf, size_t len) {
+  static int csrng_ok = -1;
+  if (csrng_ok < 0)
+    csrng_ok = R_SUCCEEDED(csrngInitialize()) ? 1 : 0;
+  if (csrng_ok) {
+    csrngGetRandomBytes(buf, len);
+    return (long)len;
+  }
+  uint64_t x = armGetSystemTick() ^ 0x9e3779b97f4a7c15ULL;
+  uint8_t *p = (uint8_t *)buf;
+  for (size_t i = 0; i < len; i++) {
+    x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+    p[i] = (uint8_t)(x >> 24);
+  }
+  return (long)len;
+}
+
 // Clang-16 libtier0 builds its mutexes/events on raw futex; map onto the Switch
 // address arbiter. Everything else returns ENOSYS (nothing else uses syscall()).
 long syscall_fake(long number, ...) {
@@ -190,7 +211,14 @@ long syscall_fake(long number, ...) {
     errno = 38;
     return -1;
   }
+  if (number == 278) { // SYS_getrandom(buf, buflen, flags)
+    void *buf = va_arg(va, void *);
+    size_t len = va_arg(va, size_t);
+    va_end(va);
+    return fill_random(buf, len);
+  }
   va_end(va);
+  debugPrintf("syscall(%ld) unsupported -> ENOSYS\n", number);
   errno = 38; // ENOSYS
   return -1;
 }
@@ -287,6 +315,8 @@ void fake_tls_install(void) {
   }
   // block is leaked on purpose: it must outlive the thread
   armSetTlsRw(block + 0x800);
+  // modules built with thread_local keep their static TLS in this same block
+  so_tls_init_thread(block + 0x800);
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +380,8 @@ int open_fake(const char *path, int flags, ...) {
     return -1;
   }
   int fd = open(path, convert_open_flags(flags), mode);
+  if (fd < 0)
+    debugPrintf("open(%s) failed errno=%d\n", path, errno);
   return fd;
 }
 
@@ -674,10 +706,17 @@ int munmap_fake(void *addr, size_t len) {
   return 0;
 }
 
-// bionic struct mallinfo: 10 size_t fields
-void *mallinfo_fake(void *out) {
-  memset(out, 0, 10 * sizeof(size_t));
-  return out;
+// bionic struct mallinfo: 10 size_t fields (80 bytes).
+// A struct this large is returned in memory: the CALLER passes the address of
+// the result in x8 (AAPCS64 indirect result register), NOT in x0. The previous
+// version took the buffer as its first argument, so it zeroed 80 bytes at
+// whatever x0 happened to hold: a fault when x0 was garbage, silent heap/stack
+// corruption when it pointed at valid memory. Returning the struct by value
+// lets the compiler honour the real ABI.
+bionic_mallinfo mallinfo_fake(void) {
+  bionic_mallinfo m;
+  memset(&m, 0, sizeof(m));
+  return m;
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,6 +1216,11 @@ static int is_fake_file(const void *f) {
   return p >= base && p < base + sizeof(fake_sF);
 }
 
+// exported for gdroid_imports.c
+int shim_is_fake_file(const void *f) {
+  return is_fake_file(f);
+}
+
 size_t fwrite_fake(const void *ptr, size_t size, size_t n, FILE *f) {
   if (is_fake_file(f)) {
 #if DEBUG_LOG
@@ -1551,16 +1595,39 @@ typedef struct {
   RwLock lock;
 } FakeRwLock;
 
+// bionic's pthread_rwlock_t is only 4-byte aligned, so a static rwlock in a
+// module's .bss can sit at 4 mod 8. A 64-bit atomic (ldaxr/stxr) on such an
+// address raises an alignment fault -- that is what crashed GDroid's libtogl
+// (pthread_rwlock_rdlock on libtogl+0x52ea3c). So only 32-bit atomics touch
+// the game's storage: word 0 is a state (0 raw, 1 building, 2 ready) and the
+// pointer to the real lock is kept as two 32-bit halves in words 2 and 3.
+typedef struct {
+  volatile uint32_t state;
+  uint32_t pad;
+  volatile uint32_t lo, hi;
+} RwSlot;
+
 static FakeRwLock *get_rwlock(void **storage) {
+  RwSlot *s = (RwSlot *)storage;
   for (;;) {
-    FakeRwLock *cur = *(FakeRwLock *volatile *)storage;
-    if (cur)
-      return cur;
-    FakeRwLock *l = calloc(1, sizeof(*l));
-    rwlockInit(&l->lock);
-    if (__sync_bool_compare_and_swap(storage, NULL, l))
-      return l;
-    free(l); // lost the init race
+    const uint32_t st = s->state;
+    if (st == 2) {
+      __sync_synchronize();
+      return (FakeRwLock *)(((uintptr_t)s->hi << 32) | s->lo);
+    }
+    if (st == 0) {
+      if (__sync_bool_compare_and_swap(&s->state, 0, 1)) {
+        FakeRwLock *l = calloc(1, sizeof(*l));
+        rwlockInit(&l->lock);
+        s->lo = (uint32_t)(uintptr_t)l;
+        s->hi = (uint32_t)((uintptr_t)l >> 32);
+        __sync_synchronize();
+        s->state = 2;
+        return l;
+      }
+      continue;
+    }
+    svcSleepThread(10000); // another thread is building it
   }
 }
 

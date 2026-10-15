@@ -8,10 +8,12 @@
 #define __CONFIG_H__
 
 // memory reserved for loading the Source modules (sum of the LOAD segments of
-// the 25 preloaded ARM64 .so files, with headroom for page alignment).
-// everything else becomes the newlib heap, which the game allocates from
-// since its malloc/free imports resolve to newlib's.
-#define SO_MEMORY_MB 96
+// the preloaded ARM64 .so files, bss included, with headroom for page
+// alignment). everything else becomes the newlib heap, which the game
+// allocates from since its malloc/free imports resolve to newlib's.
+// stock HL2 modules need ~79 MB; the GDroid (Garry's Mod) set is bigger
+// (libserver alone is ~25 MB in memory), so this must not be below ~128.
+#define SO_MEMORY_MB 160
 
 // where the game data lives on the SD card. must contain hl2/, platform/,
 // lib/ (the APK's arm64-v8a libraries) and assets/extras_dir.vpk.
@@ -21,7 +23,7 @@
 #define LOG_NAME "debug.log"
 
 // per-line SD card writes cost boot time; set to 1 when investigating a crash
-#define DEBUG_LOG 0
+#define DEBUG_LOG 1
 
 extern int screen_width;
 extern int screen_height;

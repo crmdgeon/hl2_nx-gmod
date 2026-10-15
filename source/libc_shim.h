@@ -15,6 +15,7 @@
 
 // fake bionic __sF (stdin/stdout/stderr) and wrappers that absorb it
 extern uint8_t fake_sF[3][0x100];
+int shim_is_fake_file(const void *f);
 
 size_t fwrite_fake(const void *ptr, size_t size, size_t n, FILE *f);
 size_t fread_fake(void *ptr, size_t size, size_t n, FILE *f);
@@ -102,7 +103,8 @@ time_t timegm_fake(struct tm *tm);
 int posix_memalign_fake(void **out, size_t align, size_t size);
 void *mmap_fake(void *addr, size_t len, int prot, int flags, int fd, long long off);
 int munmap_fake(void *addr, size_t len);
-void *mallinfo_fake(void *out);
+typedef struct { size_t fields[10]; } bionic_mallinfo;
+bionic_mallinfo mallinfo_fake(void);
 
 // strings/util
 char *basename_fake(const char *path);

@@ -24,6 +24,8 @@
 #include "jni_fake.h"
 #include "picker.h"
 #include "game_patches.h"
+#include "gdroid.h"
+#include "gdroid_imports.h"
 
 static void *heap_so_base = NULL;
 static size_t heap_so_limit = 0;
@@ -59,7 +61,12 @@ static const char *const module_names[] = {
 };
 #define NUM_MODULES (sizeof(module_names) / sizeof(*module_names))
 
-static so_module modules[NUM_MODULES];
+// the GMod profile loads more modules than the HL2 one
+#define MAX_MODULES 40
+static so_module modules[MAX_MODULES];
+static const char *const *active_names = module_names;
+static unsigned int active_num = NUM_MODULES;
+static int gmod_mode = 0;
 
 // split the process memory: the game's malloc resolves to newlib's, so the
 // newlib heap gets everything except the SO_MEMORY_MB pool for the .so modules
@@ -172,6 +179,9 @@ static const char *episodic_lib_dir(void) {
 }
 
 static const char *module_load_path(const char *name, char *path, size_t size) {
+  if (gmod_mode)
+    return gdroid_module_path(name, path, size);
+
   if (is_episodic_game() &&
       (!strcmp(name, "libclient.so") || !strcmp(name, "libserver.so"))) {
     const char *dir = episodic_lib_dir();
@@ -226,33 +236,46 @@ static void load_modules(void) {
   size_t remaining = heap_so_limit;
 
   // pass 1: load everything so cross-module resolution sees all exports
-  for (unsigned int i = 0; i < NUM_MODULES; i++) {
+  for (unsigned int i = 0; i < active_num; i++) {
     const int res = so_load(&modules[i],
-                            module_load_path(module_names[i], path, sizeof(path)),
+                            module_load_path(active_names[i], path, sizeof(path)),
                             base, remaining);
     if (res < 0)
       fatal_error("Could not load\n%s\n(so_load: %d)", path, res);
+    // lets a crash report address be traced back to module + offset
+    debugPrintf("module %-26s base=%p size=0x%lx\n", active_names[i],
+                modules[i].load_virtbase, (unsigned long)modules[i].load_size);
     base = (void *)ALIGN_MEM((uintptr_t)base + modules[i].load_size, 0x1000);
     remaining = heap_so_limit - ((uintptr_t)base - (uintptr_t)heap_so_base);
   }
 
+  debugPrintf("pass 1 done: %u modules loaded\n", active_num);
+
   // pass 2: relocate + resolve now that every export is visible
-  for (unsigned int i = 0; i < NUM_MODULES; i++) {
+  for (unsigned int i = 0; i < active_num; i++) {
     so_relocate(&modules[i]);
     so_resolve(&modules[i], dynlib_functions, dynlib_numfunctions, 1);
   }
 
-  apply_game_patches();
+  if (!gmod_mode)
+    apply_game_patches();
+  else
+    gdroid_patch_lua();
+
+  debugPrintf("pass 2 done: relocated and resolved\n");
 
   // pass 3: map as code, then run initializers in dependency order
-  for (unsigned int i = 0; i < NUM_MODULES; i++) {
+  for (unsigned int i = 0; i < active_num; i++) {
     so_finalize(&modules[i]);
     so_flush_caches(&modules[i]);
   }
-  for (unsigned int i = 0; i < NUM_MODULES; i++) {
+  debugPrintf("pass 3 done: modules mapped as code\n");
+  for (unsigned int i = 0; i < active_num; i++) {
+    debugPrintf("init_array: %s\n", active_names[i]);
     so_execute_init_array(&modules[i]);
     so_free_temp(&modules[i]);
   }
+  debugPrintf("all initializers done\n");
 }
 
 static void append_arg(char *dst, size_t dst_size, const char *arg) {
@@ -321,7 +344,7 @@ static void append_user_args(char *dst, size_t dst_size, const char *args) {
   }
 }
 
-static const char *language_env_name(const char *lang) {
+const char *language_env_name(const char *lang) {
   static const struct {
     const char *name;
     const char *env;
@@ -482,34 +505,65 @@ int main(void) {
   }
   chdir(config.install_root);
 
-  int picker = picker_run();
+  gmod_mode = gdroid_requested();
+  if (gmod_mode) {
+    active_names = gdroid_module_names;
+    active_num = gdroid_num_modules;
+    so_set_extra_imports(gdroid_import_functions, (int)gdroid_import_count);
+    so_set_missing_import_handler(gdroid_missing_import);
+  }
+
+  int picker = gmod_mode ? 1 : picker_run();
   if (picker == 0) {
     cpu_boost(0);
     return 0;
   }
 
-  check_data();
+  if (gmod_mode)
+    gdroid_check_data();
+  else
+    check_data();
   set_screen_size();
 
   fake_tls_install();
   jni_init();
   proc_files_init(config.install_root);
 
+  u64 mem_total = 0, mem_used = 0;
+  svcGetInfo(&mem_total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+  svcGetInfo(&mem_used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+  debugPrintf("memory: total %llu MB, used %llu MB, so pool %d MB\n",
+      (unsigned long long)(mem_total >> 20),
+      (unsigned long long)(mem_used >> 20), SO_MEMORY_MB);
+
   load_modules();
+  // the main thread's TLS block was created before the modules existed
+  so_tls_init_thread(armGetTlsRw());
 
   so_module *launcher = so_find_module("liblauncher.so");
   if (!launcher)
     fatal_error("liblauncher.so did not load");
 
-  setup_game_environment(launcher);
-
   int (* LauncherMainAndroid)(int argc, char **argv) =
       (void *)so_find_addr_rx(launcher, "LauncherMainAndroid");
+  if (!LauncherMainAndroid)
+    fatal_error("LauncherMainAndroid not found in liblauncher.so");
+
+  char **launch_argv = NULL;
+  int launch_argc = 0;
+  if (gmod_mode) {
+    launch_argc = gdroid_setup_environment(&launch_argv);
+  } else {
+    setup_game_environment(launcher);
+    static char *fake_argv[] = { "hl2_linux", NULL };
+    launch_argc = 1;
+    launch_argv = fake_argv;
+  }
 
   start_clock_thread();
 
-  static char *fake_argv[] = { "hl2_linux", NULL };
-  const int ret = LauncherMainAndroid(1, fake_argv);
+  debugPrintf("calling LauncherMainAndroid (%d args)\n", launch_argc);
+  const int ret = LauncherMainAndroid(launch_argc, launch_argv);
   debugPrintf("LauncherMainAndroid returned %d\n", ret);
 
   extern void NX_NORETURN __libnx_exit(int rc);
