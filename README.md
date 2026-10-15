@@ -17,7 +17,7 @@ To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
 
 ```
 /switch/
- gmod_nx_overlay/        <- the GDroid 'runtime.zip' decompressed
+ gmod_nx_overlay/        <- the GDroid APK 'runtime.zip' decompressed
  hl2_nx/
    hl2_nx-gmod.nro
    lib_gmod/             <- the GDroid's APK 'lib' files, except: "libzstd-jni-1.5.7-6.so",
@@ -27,6 +27,7 @@ To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
    platform/             <- from the game data
    garrysmod/            <- from the game data
    sourceengine/         <- from the game data
+
    config.txt            <- a .txt with "screen_width -1"
                                         "screen_height -1"
                                         "gamedir garrysmod"
