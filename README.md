@@ -3,7 +3,8 @@
 </div>
 <h1 align=center>Garry's Mod - Nintendo Switch port</h1>
 
-An experimental native port of Garry's Mod to the Nintendo Switch, combining code and technologies from [hl2_nx](https://github.com/NaGaa95/hl2_nx) and [GDroid](https://github.com/tinsarfal/GDroid).
+An experimental native port of Garry's Mod to the Nintendo Switch, combining code and technologies from the proyects [GDroid](https://github.com/tinsarfal/GDroid) and
+[hl2_nx](https://github.com/NaGaa95/hl2_nx).
 
 ### Installation
 
