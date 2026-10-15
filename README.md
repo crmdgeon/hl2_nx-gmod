@@ -19,7 +19,8 @@ To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
  gmod_nx_overlay/        <- the GDroid 'runtime.zip' decompressed
  hl2_nx/
    hl2_nx.nro
-   lib_gmod/             <- the GDroid's APK 'lib' files, except: "libzstd-jni-1.5.7-6.so", "libSDL2.so" and "libSDL2.so"
+   lib_gmod/             <- the GDroid's APK 'lib' files, except: "libzstd-jni-1.5.7-6.so",
+                            "libSDL2.so" and "libSDL2.so"
    files/                <- the fonts from the Source Engine APK's assets/ (dejavusans.ttf,
    platform/             <- from the game data
    garrysmod/            <- from the game data
