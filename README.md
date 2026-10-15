@@ -52,6 +52,10 @@ Some Garry's Mod addons may be compatible with this port. To install them, you c
 
 Note: Compatibility is not guaranteed. Addons that rely on unsupported Lua features, external dependencies, platform-specific binaries, or features unavailable in this port may not work properly. Some addons may require additional configuration or dependencies.
 
+Multiplayer is **untested** for now.
+Connecting directly by IP (`connect <ip>` in the console) may work, but I haven't
+verified it. I plan to look into it. Feedback is welcome.
+
 ### How to build
 
 You need devkitA64 plus the following pacman packages:
