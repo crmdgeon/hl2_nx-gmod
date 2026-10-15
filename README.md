@@ -21,7 +21,7 @@ To install, create `/switch/hl2_nx/` and `/switch/gmod_nx_overlay` on your SD ca
  hl2_nx/
    hl2_nx-gmod.nro
    lib_gmod/             <- the GDroid's APK /lib/arm64-v8a files, except: "libzstd-jni-1.5.7-6.so",
-                            "libSDL2.so" and "libSDL2.so"
+                            "libServerBrowser.so" and "libSDL2.so"
 
    files/                <- the fonts from the Source Engine APK's assets/ (dejavusans.ttf,
                            dejavusans-bold.ttf, DroidSansFallback.ttf,
