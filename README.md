@@ -1,48 +1,35 @@
 <div align=center>
-
-<img src="extras/banner.png" alt="Banner" width="25%">
-
+ 
 </div>
-<h1 align=center>Half-Life 2 - Nintendo Switch port</h1>
+<h1 align=center>Garry's Mod - Nintendo Switch port</h1>
 
-This is a wrapper/port of the Android version of Half-Life 2 (v1.16.29 - 1.17.0025, nillerusr Source engine port). <br/>
-It loads the original game's ARM64 libraries, and runs them as-is in a minimalist fake-Android environment.
+An experimental native port of Garry's Mod to the Nintendo Switch, combining code and technologies from [hl2_nx](https://github.com/NaGaa95/hl2_nx) and [GDroid](https://github.com/tinsarfal/GDroid).
 
-### How to install
+### Installation
 
-You're going to need:
-* the Source Engine `.apk` [HERE](https://arumoon.github.io/source-engine-download/) and Half-Life 2 Files (from a legally 
- obtained copy of the game)
+You need:
+* the Source Engine `.apk` [HERE](https://arumoon.github.io/source-engine-download/)
+* the GDroid ARM64 `.apk` [HERE]([https://arumoon.github.io/source-engine-download/](https://github.com/tinsarfal/GDroid/releases/download/0.1.29/GDroid-0.1.29.apk))
+* Your own Garry's Mod files (/garrysmod, /platform, /sourceengine)
 
 To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
 
 ```
-/switch/hl2_nx/
-  hl2_nx.nro
-  lib/                  <- all 27 .so files from the APK's lib/arm64-v8a/
-  lib/episodic/         <- EP1/EP2 libclient.so and libserver.so from the episodic APK
-  assets/extras_dir.vpk <- from the APK's assets/
-  files/                <- the fonts from the APK's assets/ (dejavusans.ttf,
-                           dejavusans-bold.ttf, DroidSansFallback.ttf,
-                           LiberationMono-Regular.ttf, Itim-Regular.otf)
-  hl2/                  <- from the game data (the big one: hl2_pak, textures, sounds, maps...)
-  episodic/             <- episode 1 (Optional)
-  ep2/                  <- episode 2 (Optional)
-  platform/             <- from the game data
+/switch/
+ gmod_nx_overlay/        <- the GDroid 'runtime.zip' decompressed
+ hl2_nx/
+   hl2_nx.nro
+   lib_gmod/             <- the GDroid's APK 'lib' files, except: "libzstd-jni-1.5.7-6.so", "libSDL2.so" and "libSDL2.so"
+   files/                <- the fonts from the Source Engine APK's assets/ (dejavusans.ttf,
+   platform/             <- from the game data
+   garrysmod/            <- from the game data
+   sourceengine/         <- from the game data
 ```
-
-Episode One / Two need episodic `libclient.so` and `libserver.so` in `lib/episodic/` from [HERE](https://nc.workbench.network/s/gdRnpcc2zrXz5Xg/download?path=%2F&files=episodic-1.06_96.apk).
 
 ### Notes
 
 This will not work in applet/album mode — use a game override (hold R on a title) or a forwarder.
 The Switch needs the full application memory pool
-
-A `config.txt` is created next to the nro on first run:
-* `screen_width` / `screen_height` — passed as `-w`/`-h` when both set; `-1` lets the engine pick
-* `gamedir` — game to launch: `hl2` (default), `episodic` (Episode One), or `ep2` (Episode Two)
-* `args` — extra Source command line
-* `lang` — Source language name (default `english`)
 
 
 ### How to build
