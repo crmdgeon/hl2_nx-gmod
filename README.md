@@ -40,6 +40,13 @@ To install, create `/switch/hl2_nx/` on your SD card and lay it out like this:
 This will not work in applet/album mode — use a game override (hold R on a title) or a forwarder.
 The Switch needs the full application memory pool
 
+Some Garry's Mod addons may be compatible with this port. To install them, you can use a Windows PC and SteamCMD to download them.
+*Download the required addons using SteamCMD on your PC.
+*Locate the downloaded addon files.
+*Copy the addon folders into the garrysmod/addons/ directory on your Nintendo Switch.
+*Launch the game and check whether the addons work correctly.
+
+Note: Compatibility is not guaranteed. Addons that rely on unsupported Lua features, external dependencies, platform-specific binaries, or features unavailable in this port may not work properly. Some addons may require additional configuration or dependencies.
 
 ### How to build
 
