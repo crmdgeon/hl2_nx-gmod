@@ -23,7 +23,7 @@
 #define LOG_NAME "debug.log"
 
 // per-line SD card writes cost boot time; set to 1 when investigating a crash
-#define DEBUG_LOG 1
+#define DEBUG_LOG 0
 
 extern int screen_width;
 extern int screen_height;

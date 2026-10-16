@@ -263,8 +263,6 @@ int gdroid_setup_environment(char ***argv_out) {
   add_user_args(config.args);
   if (config.console)
     add_arg("-console");
-  add_arg("+gmod_lua_verbose");
-  add_arg("1");
   add_arg("+cl_showfps");
   add_arg(config.show_fps ? "1" : "0");
   add_arg("+joystick");
