@@ -21,7 +21,7 @@ To install, create `/switch/hl2_nx/` and `/switch/gmod_nx_overlay` on your SD ca
  hl2_nx/
    hl2_nx-gmod.nro
    lib_gmod/             <- the GDroid's APK /lib/arm64-v8a files, except: "libzstd-jni-1.5.7-6.so",
-                            "libSDL2.so" and "libSDL2.so"
+                            "libServerBrowser.so" and "libSDL2.so"
 
    files/                <- the fonts from the Source Engine APK's assets/ (dejavusans.ttf,
                            dejavusans-bold.ttf, DroidSansFallback.ttf,
@@ -49,8 +49,6 @@ Some Garry's Mod addons may be compatible with this port. To install them, you c
 * Locate the downloaded addon files.
 * Copy the addon folders into the garrysmod/addons/ directory on your Nintendo Switch.
 * Launch the game and check whether the addons work correctly.
-
-Note: Compatibility is not guaranteed. Addons that rely on unsupported Lua features, external dependencies, platform-specific binaries, or features unavailable in this port may not work properly. Some addons may require additional configuration or dependencies.
 
 Multiplayer is **untested** for now.
 Connecting directly by IP (`connect <ip>` in the console) may work, but I haven't
